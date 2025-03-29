@@ -1,13 +1,16 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
+using AutoMapper;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using TaskManager.Data.Context;
-using TaskManager.Data.Models;
-using TaskManager.IRepositories;
+using TaskManager.Core.Interfaces;
+using TaskManager.Core.Models;
+using TaskManager.Data;
+using TaskManager.DTOs;
 
 namespace TaskManager.Controllers
 {
@@ -15,17 +18,21 @@ namespace TaskManager.Controllers
     [ApiController]
     public class NotesController : ControllerBase
     {
-        private readonly AppDbContext _context;
 
         private readonly IUnitOfWork _uow;
+        private readonly IItemRepo<Note> _noteRepo;
 
-        public NotesController(AppDbContext context, IUnitOfWork uow)
+        private readonly IMapper _mapper;
+        private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly int _userId;
+        public NotesController(IUnitOfWork uow, IItemRepo<Note> noteRepo , IMapper mapper, IHttpContextAccessor httpContextAccessor)
         {
-            _context = context;
             _uow = uow;
+            _mapper = mapper;
+            _noteRepo = noteRepo;
+            _userId = int.Parse(httpContextAccessor.HttpContext.User.FindFirst(ClaimTypes.NameIdentifier).Value);
         }
-
-        // GET: api/Notes
+        
         [HttpGet]
         public async Task<ActionResult<IEnumerable<Note>>> GetNotes()
         {
@@ -34,7 +41,19 @@ namespace TaskManager.Controllers
                 return Ok(notes);
             return NotFound("No Notes");
         }
+        [HttpGet("by-category/{categoryId}")]
+        public async Task<ActionResult<Note>> GetByCategory(int categoryId)
+        {
+            User? user = await _uow.UsersRepo.GetUserByEmailAsync(User.Identity.Name);
+            var notes = await _noteRepo.GetWithCategory(user, categoryId);
 
+            if (notes == null)
+            {
+                return NotFound("No To-Do Lists");
+            }
+
+            return Ok(notes);
+        }
         // GET: api/Notes/5
         [HttpGet("{id}")]
         public async Task<ActionResult<Note>> GetNote(int id)
@@ -48,18 +67,14 @@ namespace TaskManager.Controllers
 
             return Ok(note);
         }
-
-        // PUT: api/Notes/5
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
         [HttpPut("{id}")]
-        public async Task<IActionResult> PutNote(int id, Note note)
+        public async Task<IActionResult> UpdateNote(int id, NoteDTO noteDTO)
         {
+            Note note = _mapper.Map<Note>(noteDTO);
             if (id != note.Id)
             {
                 return BadRequest("Note Not Found");
             }
-
-            _context.Entry(note).State = EntityState.Modified;
 
             try
             {
@@ -71,12 +86,10 @@ namespace TaskManager.Controllers
 
             return NoContent();
         }
-
-        // POST: api/Notes
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
         [HttpPost]
-        public async Task<ActionResult<Note>> PostNote(Note note)
+        public async Task<ActionResult<Note>> AddNote(NoteDTO noteDTO)
         {
+            Note note = _mapper.Map<Note>(noteDTO);
             if (ModelState.IsValid)
             {
                 await _uow.Notes.AddAsync(note);
@@ -86,8 +99,6 @@ namespace TaskManager.Controllers
             return BadRequest("Invalid Data");
 
         }
-
-        // DELETE: api/Notes/5
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteNote(int id)
         {

@@ -1,13 +1,16 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
+using AutoMapper;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using TaskManager.Data.Context;
-using TaskManager.Data.Models;
-using TaskManager.IRepositories;
+using TaskManager.Core.Interfaces;
+using TaskManager.Core.Models;
+using TaskManager.Data;
+using TaskManager.DTOs;
 
 namespace TaskManager.Controllers
 {
@@ -15,14 +18,15 @@ namespace TaskManager.Controllers
     [ApiController]
     public class ColorsController : ControllerBase
     {
-        private readonly AppDbContext _context;
-
         private readonly IUnitOfWork _uow;
-
-        public ColorsController(AppDbContext context, IUnitOfWork uow)
+        private readonly IMapper _mapper;
+        private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly int _userId;
+        public ColorsController(IUnitOfWork uow, IMapper mapper, IHttpContextAccessor httpContextAccessor)
         {
-            _context = context;
             _uow = uow;
+            _mapper = mapper;
+            _userId = int.Parse(httpContextAccessor.HttpContext.User.FindFirst(ClaimTypes.NameIdentifier).Value);
         }
 
         // GET: api/Colors
@@ -48,18 +52,14 @@ namespace TaskManager.Controllers
 
             return Ok(color);
         }
-
-        // PUT: api/Colors/5
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
         [HttpPut("{id}")]
-        public async Task<IActionResult> PutColor(int id, Color color)
+        public async Task<IActionResult> UpdateColor(int id, ColorDTO colorDTO)
         {
+            Color color = _mapper.Map<Color>(colorDTO);
             if (id != color.Id)
             {
                 return BadRequest("Color Not Found");
             }
-
-            _context.Entry(color).State = EntityState.Modified;
 
             try
             {
@@ -71,12 +71,10 @@ namespace TaskManager.Controllers
 
             return NoContent();
         }
-
-        // POST: api/Colors
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
         [HttpPost]
-        public async Task<ActionResult<Color>> PostColor(Color color)
+        public async Task<ActionResult<Color>> AddColor(ColorDTO colorDTO)
         {
+            Color color = _mapper.Map<Color>(colorDTO);
             if (ModelState.IsValid)
             {
                 await _uow.Colors.AddAsync(color);
@@ -86,8 +84,6 @@ namespace TaskManager.Controllers
             return BadRequest("Invalid Data");
 
         }
-
-        // DELETE: api/Colors/5
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteColor(int id)
         {

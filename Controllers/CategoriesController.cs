@@ -1,13 +1,18 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
+using AutoMapper;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using TaskManager.Data.Context;
-using TaskManager.Data.Models;
-using TaskManager.IRepositories;
+using Newtonsoft.Json.Linq;
+using TaskManager.Core.Interfaces;
+using TaskManager.Core.Models;
+using TaskManager.Data;
+using TaskManager.DTOs;
+using TaskManager.Infrastructure.Repositories;
 
 namespace TaskManager.Controllers
 {
@@ -15,14 +20,17 @@ namespace TaskManager.Controllers
     [ApiController]
     public class CategoriesController : ControllerBase
     {
-        private readonly AppDbContext _context;
+        //private readonly AppDbContext _context;
 
         private readonly IUnitOfWork _uow;
-
-        public CategoriesController(AppDbContext context, IUnitOfWork uow)
+        private readonly IMapper _mapper;
+        private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly int _userId;
+        public CategoriesController(IUnitOfWork uow, IMapper mapper, IHttpContextAccessor httpContextAccessor)
         {
-            _context = context;
             _uow = uow;
+            _mapper = mapper;
+            _userId = int.Parse(httpContextAccessor.HttpContext.User.FindFirst(ClaimTypes.NameIdentifier).Value);
         }
 
         // GET: api/Categories
@@ -48,22 +56,20 @@ namespace TaskManager.Controllers
 
             return Ok(category);
         }
-
-        // PUT: api/Categories/5
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
         [HttpPut("{id}")]
-        public async Task<IActionResult> PutCategory(int id, Category category)
+        public async Task<IActionResult> UpdateCategory(int id, CategoryDTO categoryDTO)
         {
+            Category category = _mapper.Map<Category>(categoryDTO);
             if (id != category.Id)
             {
                 return BadRequest("Category Not Found");
             }
 
-            _context.Entry(category).State = EntityState.Modified;
-
             try
             {
-                return Ok(await _uow.Categories.UpdateAsync(category));
+                if(ModelState.IsValid){
+                    return Ok(await _uow.Categories.UpdateAsync(category));
+                }
             }
             catch (DbUpdateConcurrencyException)
             {
@@ -71,23 +77,18 @@ namespace TaskManager.Controllers
 
             return NoContent();
         }
-
-        // POST: api/Categories
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
         [HttpPost]
-        public async Task<ActionResult<Category>> PostCategory(Category category)
+        public async Task<ActionResult<Category>> AddCategory(CategoryDTO categoryDTO)
         {
+            Category category = _mapper.Map<Category>(categoryDTO);
             if (ModelState.IsValid)
             {
                 await _uow.Categories.AddAsync(category);
-
                 return CreatedAtAction("GetCategory", new { id = category.Id }, category);
             }
             return BadRequest("Invalid Data");
 
         }
-
-        // DELETE: api/Categories/5
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteCategory(int id)
         {

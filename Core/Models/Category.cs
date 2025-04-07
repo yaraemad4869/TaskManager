@@ -15,7 +15,7 @@ namespace TaskManager.Core.Models
         public string Name { get; set; }
         [ForeignKey("user")]
         public int UserId { get; set; }
-        public User user { get; set; }
-        public ICollection<Item>? Items { get; set; }
+        public virtual User user { get; set; }
+        public virtual ICollection<Item>? Items { get; set; }
     }
 }

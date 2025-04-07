@@ -36,7 +36,7 @@ namespace TaskManager.Infrastructure.Repositories
         public async Task<User> VerifyUser(LoginDTO user)
         {
             if(await EmailExistsAsync(user.Email)){
-                return await _db.Users.FirstOrDefaultAsync(u => u.Email == user.Email && u.Password == user.Password);
+                return await _db.Users.FirstOrDefaultAsync(u => u.Email == user.Email && u.PasswordHash == BCrypt.Net.BCrypt.HashPassword(user.Password));
             }
             return null;
         }

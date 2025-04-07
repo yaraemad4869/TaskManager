@@ -15,6 +15,6 @@ namespace TaskManager.Core.Models
         public bool IsCompleted { get; set; } = false;
         [ForeignKey("toDoList")]
         public int ToDoListId { get; set; }
-        public ToDoList toDoList { get; set; }
+        public virtual ToDoList toDoList { get; set; }
     }
 }

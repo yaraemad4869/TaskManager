@@ -1,122 +1,182 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Security.Claims;
 using System.Threading.Tasks;
 using AutoMapper;
-using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using TaskManager.Core.Interfaces;
 using TaskManager.Core.Models;
-using TaskManager.Data;
 using TaskManager.DTOs;
 
 namespace TaskManager.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class ToDoListsController : ControllerBase
     {
         private readonly IUnitOfWork _uow;
-        private readonly IItemRepo<ToDoList> _toDoListRepo;
         private readonly IMapper _mapper;
-        private readonly IHttpContextAccessor _httpContextAccessor;
-        private readonly int _userId;
-        public ToDoListsController(IUnitOfWork uow, IItemRepo<ToDoList> toDoListRepo, IMapper mapper, IHttpContextAccessor httpContextAccessor)
+        private readonly UserManager<User> _userManager;
+
+        public ToDoListsController(
+            IUnitOfWork uow,
+            IMapper mapper,
+            UserManager<User> userManager)
         {
             _uow = uow;
-            _toDoListRepo = toDoListRepo;
             _mapper = mapper;
-            _userId = int.Parse(httpContextAccessor.HttpContext.User.FindFirst(ClaimTypes.NameIdentifier).Value);
+            _userManager = userManager;
         }
-
-        // GET: api/ToDoLists
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<ToDoList>>> GettoDoLists()
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<IEnumerable<ToDoListDTO>>> GetToDoLists()
         {
-            List<ToDoList>? toDoLists = await _uow.ToDoLists.GetAllAsync();
-            if (toDoLists.Any())
-                return Ok(toDoLists);
-            return NotFound("No To-Do Lists");
-        }
-
-        // GET: api/ToDoLists/5
-
-        [HttpGet("by-category/{categoryId}")]
-        public async Task<ActionResult<ToDoList>> GetByCategory (int categoryId)
-        {
-            User? user = await _uow.UsersRepo.GetUserByEmailAsync(User.Identity.Name);
-            var toDoLists = await _toDoListRepo.GetWithCategory(user,categoryId);
-
-            if (toDoLists == null)
+            var user = await GetCurrentUserAsync();
+            if (user == null)
             {
-                return NotFound("No To-Do Lists");
+                return RedirectToAction("Login", "Auth");
+            }
+            var todolists = await _uow.ToDoLists.GetAllByUserId(user.Id);
+
+            if (!todolists.Any())
+            {
+                return NotFound("No todolists found");
             }
 
-            return Ok(toDoLists);
+            return Ok(_mapper.Map<IEnumerable<ToDoListDTO>>(todolists));
         }
-
         [HttpGet("{id}")]
-        public async Task<ActionResult<ToDoList>> GetToDoList(int id)
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<ToDoListDTO>> GetToDoList(int id)
         {
-            var toDoList = await _uow.ToDoLists.GetByIdAsync(id);
-
-            if (toDoList == null)
+            var user = await GetCurrentUserAsync();
+            if (user == null)
             {
-                return NotFound("To-Do List Not Found");
+                return RedirectToAction("Login", "Auth");
+            }
+            var todolist = await _uow.ToDoLists.GetOneByIdAndUserId(id, user.Id);
+            if (todolist == null)
+            {
+                return NotFound("To-Do List not found");
             }
 
-            return Ok(toDoList);
+            return Ok(_mapper.Map<ToDoListDTO>(todolist));
         }
-
-        // PUT: api/ToDoLists/5
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
-        [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateToDoList(int id, ToDoListDTO toDoListDTO)
+        [HttpGet("search/{name}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<ToDoListDTO>> GetToDoList(string name)
         {
-            ToDoList toDoList = _mapper.Map<ToDoList>(toDoListDTO);
-            if (id != toDoList.Id)
+            var user = await GetCurrentUserAsync();
+            if (user == null)
             {
-                return BadRequest("To-Do List Not Found");
+                return RedirectToAction("Login", "Auth");
+            }
+            var todolist = await _uow.ToDoLists.GetOneByNameAndUserId(name, user.Id);
+            if (todolist == null)
+            {
+                return NotFound("No To-Do Lists Found");
             }
 
+            return Ok(_mapper.Map<ToDoListDTO>(todolist));
+        }
+        [HttpPut("{id}")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> UpdateToDoList(int id, ToDoListDTO todolistDTO)
+        {
+            var user = await GetCurrentUserAsync();
+            if (user == null)
+            {
+                return RedirectToAction("Login", "Auth");
+            }
+            var existingToDoList = await _uow.ToDoLists.GetOneByIdAndUserId(id, user.Id);
+            if (existingToDoList == null)
+            {
+                return NotFound("ToDoList not found");
+            }
+            if (id != existingToDoList.Id)
+            {
+                return BadRequest("ID mismatch");
+            }
+            if (await _uow.ToDoLists.IsUnique(todolistDTO.Title, user.Id))
+            {
+                ModelState.AddModelError("UniqueError", "To-Do List name already exists");
+            }
+            _mapper.Map(todolistDTO,existingToDoList);
             try
             {
-                return Ok(await _uow.ToDoLists.UpdateAsync(toDoList));
+                return Ok(await _uow.ToDoListsCRUD.UpdateAsync(existingToDoList));
             }
-            catch (DbUpdateConcurrencyException)
+            catch
             {
-
-                return NoContent();
+                return BadRequest("Failed to update To-do list");
             }
         }
         [HttpPost]
-        public async Task<ActionResult<ToDoList>> AddToDoList(ToDoListDTO toDoListDTO)
+        [ProducesResponseType(StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<ActionResult<ToDoListDTO>> AddToDoList(ToDoListDTO todolistDTO)
         {
-            ToDoList toDoList = _mapper.Map<ToDoList>(toDoListDTO);
-            if (ModelState.IsValid)
+            var user = await GetCurrentUserAsync();
+            if (user == null)
             {
-                await _uow.ToDoLists.AddAsync(toDoList);
-
-                return CreatedAtAction("GetToDoList", new { id = toDoList.Id }, toDoList);
+                return RedirectToAction("Login", "Auth");
             }
-            return BadRequest("Invalid Data");
+            if (await _uow.ToDoLists.IsUnique(todolistDTO.Title, user.Id))
+            {
+                ModelState.AddModelError("UniqueError", "To-Do List name already exists");
+            }
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+            var todolist = _mapper.Map<ToDoList>(todolistDTO);
+            todolist.UserId = user.Id;
+            var createdToDoList = await _uow.ToDoListsCRUD.AddAsync(todolist);
+            return CreatedAtAction(
+        actionName: nameof(AddToDoList),
+        routeValues: new { id = todolist.Id },
+        value: todolistDTO);
         }
         [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteToDoList(int id)
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<ToDoListDTO>> DeleteToDoList(int id)
         {
-            var toDoList = await _uow.ToDoLists.DeleteAsync(id);
-            if (toDoList == null)
+            var user = await GetCurrentUserAsync();
+            var todolist = await _uow.ToDoLists.DeleteAsync(id, user.Id);
+
+            if (todolist == null)
             {
-                return NotFound("To-Do Not Found");
+                return NotFound("To-Do List not found");
             }
-            return Ok(toDoList);
+            return Ok(_mapper.Map<ToDoListDTO>(todolist));
+        }
+        [HttpDelete("by-name")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<ToDoListDTO>> DeleteToDoList(ToDoListDTO todolistDTO)
+        {
+            var user = await GetCurrentUserAsync();
+            var todolist = await _uow.ToDoLists.DeleteAsync(todolistDTO.Title, user.Id);
+
+            if (todolist == null)
+            {
+                return NotFound("To-Do List not found");
+            }
+            return Ok(_mapper.Map<ToDoListDTO>(todolist));
         }
 
-        //private bool ToDoListExists(int id)
-        //{
-        //    return _context.toDoLists.Any(e => e.Id == id);
-        //}
+        private async Task<User> GetCurrentUserAsync()
+        {
+            return await _userManager.GetUserAsync(User);
+        }
     }
 }

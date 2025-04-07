@@ -1,112 +1,164 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Security.Claims;
 using System.Threading.Tasks;
 using AutoMapper;
-using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using TaskManager.Core.Interfaces;
 using TaskManager.Core.Models;
-using TaskManager.Data;
 using TaskManager.DTOs;
 
 namespace TaskManager.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class ToDoesController : ControllerBase
     {
         private readonly IUnitOfWork _uow;
-
         private readonly IMapper _mapper;
-        private readonly IHttpContextAccessor _httpContextAccessor;
-        private readonly int _userId;
-        public ToDoesController(IUnitOfWork uow, IMapper mapper, IHttpContextAccessor httpContextAccessor)
+        private readonly UserManager<User> _userManager;
+
+        public ToDoesController(
+            IUnitOfWork uow,
+            IMapper mapper,
+            UserManager<User> userManager)
         {
             _uow = uow;
             _mapper = mapper;
-            _userId = int.Parse(httpContextAccessor.HttpContext.User.FindFirst(ClaimTypes.NameIdentifier).Value);
+            _userManager = userManager;
         }
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<ToDo>>?> GetToDos()
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<IEnumerable<ToDoDTO>>> GetToDoes()
         {
-            List<ToDo>? toDos = await _uow.ToDos.GetAllAsync();
-            if (toDos.Any())
-                return Ok(toDos);
-            return NotFound("No To-Dos");
-        }
+            var user = await GetCurrentUserAsync();
+            if (user == null)
+            {
+                return RedirectToAction("Login", "Auth");
+            }
+            var todos = await _uow.ToDoes.GetAllByUserId(user.Id);
 
-        // GET: api/ToDoes/5
+            if (!todos.Any())
+            {
+                return NotFound("No todos found");
+            }
+
+            return Ok(_mapper.Map<IEnumerable<ToDoDTO>>(todos));
+        }
         [HttpGet("{id}")]
-        public async Task<ActionResult<ToDo>?> GetToDo(int id)
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<ToDoDTO>> GetToDo(int id)
         {
-            var toDo = await _uow.ToDos.GetByIdAsync(id);
-
-            if (toDo == null)
+            var user = await GetCurrentUserAsync();
+            if (user == null)
             {
-                return NotFound("To-Do Not Found");
+                return RedirectToAction("Login", "Auth");
+            }
+            var todo = await _uow.ToDoes.GetOneByIdAndUserId(id, user.Id);
+            if (todo == null)
+            {
+                return NotFound("ToDo not found");
             }
 
-            return Ok(toDo);
+            return Ok(_mapper.Map<ToDoDTO>(todo));
         }
-
-        // PUT: api/ToDoes/5
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
         [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateToDo(int id, ToDoDTO toDoDTO)
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> UpdateToDo(int id, ToDoDTO todoDTO)
         {
-            ToDo toDo = _mapper.Map<ToDo>(toDoDTO);
-            if (!ModelState.IsValid || id != toDo.Id)
+            var user = await GetCurrentUserAsync();
+            if (user == null)
             {
-                ModelState.AddModelError("InvalidData", "Invalid Data");
-                return BadRequest("Invalid Data");
+                return RedirectToAction("Login", "Auth");
             }
-
+            var existingToDo = await _uow.ToDoes.GetOneByIdAndUserId(id, user.Id);
+            if (existingToDo == null)
+            {
+                return NotFound("ToDo not found");
+            }
+            if (id != existingToDo.Id)
+            {
+                return BadRequest("ID mismatch");
+            }
+            if (await _uow.ToDoes.IsUnique(todoDTO.Name, user.Id))
+            {
+                ModelState.AddModelError("UniqueError", "ToDo name already exists");
+            }
+            _mapper.Map(todoDTO,existingToDo);
             try
             {
-                ToDo toDo1= await _uow.ToDos.UpdateAsync(toDo);
-                if (toDo1 == null)
-                {
-                    return NotFound("To-Do Not Found");
-                }
-                return Ok(toDo);
+                return Ok(await _uow.ToDoesCRUD.UpdateAsync(existingToDo));
             }
-            catch (DbUpdateConcurrencyException)
+            catch
             {
-                
-            return NoContent();
+                return BadRequest("Failed to update todo");
             }
-
         }
-
-        // POST: api/ToDoes
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
         [HttpPost]
-        public async Task<ActionResult<ToDo>> AddToDo(ToDoDTO toDoDTO)
+        [ProducesResponseType(StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<ActionResult<ToDoDTO>> AddToDo(ToDoDTO todoDTO)
         {
-            ToDo toDo = _mapper.Map<ToDo>(toDoDTO);
-            if (ModelState.IsValid){
-                await _uow.ToDos.AddAsync(toDo);
-
-                return CreatedAtAction("GetToDo", new { id = toDo.Id }, toDo); 
+            var user = await GetCurrentUserAsync();
+            if (user == null)
+            {
+                return RedirectToAction("Login", "Auth");
             }
+            if (await _uow.ToDoes.IsUnique(todoDTO.Name, user.Id))
+            {
+                ModelState.AddModelError("UniqueError", "ToDo name already exists");
+            }
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+            var todo = _mapper.Map<ToDo>(todoDTO);
+            todo.toDoList.UserId = user.Id;
+            var createdToDo = await _uow.ToDoesCRUD.AddAsync(todo);
+            return CreatedAtAction(
+        actionName: nameof(AddToDo),
+        routeValues: new { id = todo.Id },
+        value: todoDTO);
+        }
+        [HttpDelete("{id}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<ToDoDTO>> DeleteToDo(int id)
+        {
+            var user = await GetCurrentUserAsync();
+            var todo = await _uow.ToDoes.DeleteAsync(id, user.Id);
 
-            ModelState.AddModelError("InvalidData", "Invalid Data");
-            return BadRequest("Invalid Data");
+            if (todo == null)
+            {
+                return NotFound("ToDo not found");
+            }
+            return Ok(_mapper.Map<ToDoDTO>(todo));
+        }
+        [HttpDelete("by-name")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<ToDoDTO>> DeleteToDo(ToDoDTO todoDTO)
+        {
+            var user = await GetCurrentUserAsync();
+            var todo = await _uow.ToDoes.DeleteAsync(todoDTO.Name, user.Id);
+
+            if (todo == null)
+            {
+                return NotFound("ToDo not found");
+            }
+            return Ok(_mapper.Map<ToDoDTO>(todo));
         }
 
-        // DELETE: api/ToDoes/5
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteToDo(int id)
+        private async Task<User> GetCurrentUserAsync()
         {
-            var toDo = await _uow.ToDos.DeleteAsync(id);
-            if (toDo == null)
-            {
-                return NotFound("To-Do Not Found");
-            }
-            return Ok(toDo);
+            return await _userManager.GetUserAsync(User);
         }
     }
 }

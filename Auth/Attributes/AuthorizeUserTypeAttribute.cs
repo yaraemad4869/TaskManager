@@ -1,15 +1,48 @@
 ﻿using Microsoft.AspNetCore.Authorization;
-using System.Data;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
+using System.Linq;
 using TaskManager.Core.Enums;
 
-namespace TaskManager.Auth.Attributes
+public class AuthorizeUserTypeAttribute : AuthorizeAttribute, IAuthorizationFilter
 {
-    public class AuthorizeUserTypeAttribute : AuthorizeAttribute
+    private readonly UserType[] _allowedUserTypes;
+
+    public AuthorizeUserTypeAttribute(params UserType[] allowedUserTypes)
     {
-        public AuthorizeUserTypeAttribute(params UserType[] allowedUserTypes)
+        _allowedUserTypes = allowedUserTypes;
+    }
+
+    public void OnAuthorization(AuthorizationFilterContext context)
+    {
+        var user = context.HttpContext.User;
+
+        if (!user.Identity.IsAuthenticated)
         {
-            var allowedTypesAsStrings = allowedUserTypes.Select(x => x.ToString());
-            Roles = string.Join(",", allowedTypesAsStrings);
+            // User is not authenticated
+            context.Result = new Microsoft.AspNetCore.Mvc.UnauthorizedResult();
+            return;
+        }
+
+        var userTypeClaim = user.Claims.FirstOrDefault(c => c.Type == "UserType");
+        if (userTypeClaim == null)
+        {
+            // UserType claim not found
+            context.Result = new JsonResult(new { message = "Forbidden - UserType claim missing" })
+            {
+                StatusCode = StatusCodes.Status403Forbidden
+            };
+            return;
+        }
+
+        if (!_allowedUserTypes.Any(ut => ut.ToString() == userTypeClaim.Value))
+        {
+            // User doesn't have the required UserType
+            context.Result = new JsonResult(new { message = "Forbidden - Insufficient privileges" })
+            {
+                StatusCode = StatusCodes.Status403Forbidden
+            };
         }
     }
 }

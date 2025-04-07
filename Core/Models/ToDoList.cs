@@ -12,6 +12,6 @@ namespace TaskManager.Core.Models
         {
             ToDos = new List<ToDo>();
         }
-        public ICollection<ToDo>? ToDos { get; set; }
+        public virtual ICollection<ToDo>? ToDos { get; set; }
     }
 }

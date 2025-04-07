@@ -1,108 +1,183 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Security.Claims;
 using System.Threading.Tasks;
 using AutoMapper;
-using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Newtonsoft.Json.Linq;
 using TaskManager.Core.Interfaces;
 using TaskManager.Core.Models;
-using TaskManager.Data;
 using TaskManager.DTOs;
-using TaskManager.Infrastructure.Repositories;
 
 namespace TaskManager.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class CategoriesController : ControllerBase
     {
-        //private readonly AppDbContext _context;
-
         private readonly IUnitOfWork _uow;
         private readonly IMapper _mapper;
-        private readonly IHttpContextAccessor _httpContextAccessor;
-        private readonly int _userId;
-        public CategoriesController(IUnitOfWork uow, IMapper mapper, IHttpContextAccessor httpContextAccessor)
+        private readonly UserManager<User> _userManager;
+
+        public CategoriesController(
+            IUnitOfWork uow,
+            IMapper mapper,
+            UserManager<User> userManager)
         {
             _uow = uow;
             _mapper = mapper;
-            _userId = int.Parse(httpContextAccessor.HttpContext.User.FindFirst(ClaimTypes.NameIdentifier).Value);
+            _userManager = userManager;
         }
-
-        // GET: api/Categories
         [HttpGet]
-        public async Task<ActionResult<List<Category>>> GetCategories()
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<IEnumerable<CategoryDTO>>> GetCategories()
         {
-            List<Category>? categories = await _uow.Categories.GetAllAsync();
-            if (categories.Any())
-                return Ok(categories);
-            return NotFound("No Categories");
-        }
-
-        // GET: api/Categories/5
-        [HttpGet("{id}")]
-        public async Task<ActionResult<Category>> GetCategory(int id)
-        {
-            Category? category = await _uow.Categories.GetByIdAsync(id);
-
-            if (category == null)
+            var user = await GetCurrentUserAsync();
+            if(user == null)
             {
-                return NotFound("Category Not Found");
+                return RedirectToAction("Login","Auth");
+            }
+            var categories = await _uow.CategoriesRepo.GetAllByUserId(user.Id);
+
+            if (!categories.Any())
+            {
+                return NotFound("No categories found");
             }
 
-            return Ok(category);
+            return Ok(_mapper.Map<IEnumerable<CategoryDTO>>(categories));
+        }
+        [HttpGet("{id}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<CategoryDTO>> GetCategory(int id)
+        {
+            var user = await GetCurrentUserAsync();
+            if (user == null)
+            {
+                return RedirectToAction("Login", "Auth");
+            }
+            var category = await _uow.CategoriesRepo.GetOneByIdAndUserId(id, user.Id);
+            if (category == null)
+            {
+                return NotFound("Category not found");
+            }
+
+            return Ok(_mapper.Map<CategoryDTO>(category));
+        }
+        [HttpGet("search/{name}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<CategoryDTO>> GetCategory(string name)
+        {
+            var user = await GetCurrentUserAsync();
+            var categories = await _uow.CategoriesRepo.GetOneByNameAndUserId(name, user.Id);
+            if (categories == null)
+            {
+                return NotFound("No Categories Found");
+            }
+
+            return Ok(_mapper.Map<CategoryDTO>(categories));
         }
         [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateCategory(int id, CategoryDTO categoryDTO)
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> UpdateCategory(int id, string name)
         {
-            Category category = _mapper.Map<Category>(categoryDTO);
-            if (id != category.Id)
+            var user = await GetCurrentUserAsync();
+            if (user == null)
             {
-                return BadRequest("Category Not Found");
+                return RedirectToAction("Login", "Auth");
             }
-
+            var existingCategory = await _uow.CategoriesRepo.GetOneByIdAndUserId(id, user.Id);
+            if (existingCategory == null)
+            {
+                return NotFound("Category not found");
+            }
+            //if (id != existingCategory.Id)
+            //{
+            //    return BadRequest("ID mismatch");
+            //}
+            if (await _uow.CategoriesRepo.IsUnique(name, user.Id))
+            {
+                return BadRequest("Category name already exists");
+            }
+            //if (!ModelState.IsValid)
+            //{
+            //    return BadRequest(ModelState);
+            //}
+            existingCategory.Name = name;
             try
             {
-                if(ModelState.IsValid){
-                    return Ok(await _uow.Categories.UpdateAsync(category));
-                }
+                await _uow.Categories.UpdateAsync(existingCategory);
+                return Ok(name);
             }
-            catch (DbUpdateConcurrencyException)
+            catch
             {
+                return BadRequest("Failed to update category");
             }
-
-            return NoContent();
         }
         [HttpPost]
-        public async Task<ActionResult<Category>> AddCategory(CategoryDTO categoryDTO)
+        [ProducesResponseType(StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<ActionResult<CategoryDTO>> AddCategory(CategoryDTO categoryDTO)
         {
-            Category category = _mapper.Map<Category>(categoryDTO);
-            if (ModelState.IsValid)
+            var user = await GetCurrentUserAsync();
+            if (user == null)
             {
-                await _uow.Categories.AddAsync(category);
-                return CreatedAtAction("GetCategory", new { id = category.Id }, category);
+                return RedirectToAction("Login", "Auth");
             }
-            return BadRequest("Invalid Data");
-
+            if(await _uow.CategoriesRepo.IsUnique(categoryDTO.Name, user.Id))
+            {
+                ModelState.AddModelError("UniqueError", "Category name already exists");
+            }
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+            var category = _mapper.Map<Category>(categoryDTO);
+            category.UserId = user.Id;
+            var createdCategory =await _uow.Categories.AddAsync(category);
+            return CreatedAtAction(
+        actionName: nameof(AddCategory),
+        routeValues: new { id = category.Id },
+        value: categoryDTO);
         }
         [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteCategory(int id)
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<CategoryDTO>> DeleteCategory(int id)
         {
-            Category? category = await _uow.Categories.DeleteAsync(id);
+            var user = await GetCurrentUserAsync();
+            var category = await _uow.CategoriesRepo.DeleteAsync(id, user.Id);
+
             if (category == null)
             {
-                return NotFound("Category Not Found");
+                return NotFound("Category not found");
             }
-            return Ok(category);
+            return Ok(_mapper.Map<CategoryDTO>(category));
+        }
+        [HttpDelete("by-name")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<CategoryDTO>> DeleteCategory(CategoryDTO categoryDTO)
+        {
+            var user = await GetCurrentUserAsync();
+            var category = await _uow.CategoriesRepo.DeleteAsync(categoryDTO.Name, user.Id);
+
+            if (category == null)
+            {
+                return NotFound("Category not found");
+            }
+            return Ok(_mapper.Map<CategoryDTO>(category));
         }
 
-        //private bool CategoryExists(int id)
-        //{
-        //    return _context.Categories.Any(e => e.Id == id);
-        //}
+        private async Task<User> GetCurrentUserAsync()
+        {
+            return await _userManager.GetUserAsync(User);
+        }
     }
 }

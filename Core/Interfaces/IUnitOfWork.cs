@@ -13,14 +13,20 @@ namespace TaskManager.Core.Interfaces
         IBasicRepo<User> Users { get; }
         IUserRepo UsersRepo { get; }
         IBasicRepo<Category> Categories { get; }
-        ICategoryRepo CategoriesRepo { get; }
+
+        ICategoryRepo<Category> CategoriesRepo { get; }
         IBasicRepo<Color> Colors { get; }
-        IBasicRepo<Item> Items { get; }
-        IBasicRepo<ToDoList> ToDoLists { get; }
-        IBasicRepo<ToDo> ToDos { get; }
-        IBasicRepo<Note> Notes { get; }
+        ICategoryRepo<Color> ColorsRepo { get; }
+        //IBasicRepo<Item> Items { get; }
+        ICategoryRepo<ToDoList> ToDoLists { get; }
+        IToDoRepo ToDoesRepo { get; }
+        ICategoryRepo<ToDo> ToDoes { get; }
+        IBasicRepo<ToDo> ToDoesCRUD { get; }
+        ICategoryRepo<Note> Notes { get; }
         IItemRepo<Note> NotesRepo { get; }
+        IBasicRepo<Note> NotesCRUD { get; }
         IItemRepo<ToDoList> ToDoListsRepo { get; }
+        IBasicRepo<ToDoList> ToDoListsCRUD { get; }
         public void Dispose();
     }
 }

@@ -1,118 +1,186 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Security.Claims;
 using System.Threading.Tasks;
 using AutoMapper;
-using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using TaskManager.Core.Interfaces;
 using TaskManager.Core.Models;
-using TaskManager.Data;
 using TaskManager.DTOs;
 
 namespace TaskManager.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class NotesController : ControllerBase
     {
-
         private readonly IUnitOfWork _uow;
-        private readonly IItemRepo<Note> _noteRepo;
-
         private readonly IMapper _mapper;
-        private readonly IHttpContextAccessor _httpContextAccessor;
-        private readonly int _userId;
-        public NotesController(IUnitOfWork uow, IItemRepo<Note> noteRepo , IMapper mapper, IHttpContextAccessor httpContextAccessor)
+        private readonly UserManager<User> _userManager;
+
+        public NotesController(
+            IUnitOfWork uow,
+            IMapper mapper,
+            UserManager<User> userManager)
         {
             _uow = uow;
             _mapper = mapper;
-            _noteRepo = noteRepo;
-            _userId = int.Parse(httpContextAccessor.HttpContext.User.FindFirst(ClaimTypes.NameIdentifier).Value);
+            _userManager = userManager;
         }
-        
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<Note>>> GetNotes()
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<IEnumerable<NoteDTO>>> GetNotes()
         {
-            List<Note>? notes = await _uow.Notes.GetAllAsync();
-            if(notes.Any())
-                return Ok(notes);
-            return NotFound("No Notes");
-        }
-        [HttpGet("by-category/{categoryId}")]
-        public async Task<ActionResult<Note>> GetByCategory(int categoryId)
-        {
-            User? user = await _uow.UsersRepo.GetUserByEmailAsync(User.Identity.Name);
-            var notes = await _noteRepo.GetWithCategory(user, categoryId);
-
-            if (notes == null)
+            var user = await GetCurrentUserAsync();
+            if (user == null)
             {
-                return NotFound("No To-Do Lists");
+                return RedirectToAction("Login", "Auth");
+            }
+            var notes = await _uow.Notes.GetAllByUserId(user.Id);
+
+            if (!notes.Any())
+            {
+                return NotFound("No notes found");
             }
 
-            return Ok(notes);
+            return Ok(_mapper.Map<IEnumerable<NoteDTO>>(notes));
         }
-        // GET: api/Notes/5
         [HttpGet("{id}")]
-        public async Task<ActionResult<Note>> GetNote(int id)
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<NoteDTO>> GetNote(int id)
         {
-            Note? note = await _uow.Notes.GetByIdAsync(id);
-
+            var user = await GetCurrentUserAsync();
+            if (user == null)
+            {
+                return RedirectToAction("Login", "Auth");
+            }
+            var note = await _uow.Notes.GetOneByIdAndUserId(id, user.Id);
             if (note == null)
             {
-                return NotFound("Note Not Found");
+                return NotFound("Note not found");
             }
 
-            return Ok(note);
+            return Ok(_mapper.Map<NoteDTO>(note));
+        }
+        [HttpGet("search/{name}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<NoteDTO>> GetNotes(string name)
+        {
+            var user = await GetCurrentUserAsync();
+            if (user == null)
+            {
+                return RedirectToAction("Login", "Auth");
+            }
+            var note = await _uow.Notes.GetOneByNameAndUserId(name, user.Id);
+            if (note == null)
+            {
+                return NotFound("No Notes Found");
+            }
+
+            return Ok(_mapper.Map<NoteDTO>(note));
         }
         [HttpPut("{id}")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> UpdateNote(int id, NoteDTO noteDTO)
         {
-            Note note = _mapper.Map<Note>(noteDTO);
-            if (id != note.Id)
+            var user = await GetCurrentUserAsync();
+            if (user == null)
             {
-                return BadRequest("Note Not Found");
+                return RedirectToAction("Login", "Auth");
             }
-
+            if (await _uow.Notes.IsUnique(noteDTO.Title, user.Id))
+            {
+                ModelState.AddModelError("UniqueError", "Note name already exists");
+            }
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+            var existingNote = await _uow.Notes.GetOneByIdAndUserId(id, user.Id);
+            if (existingNote == null)
+            {
+                return NotFound("Note not found");
+            }
+            //if (id != existingNote.Id)
+            //{
+            //    return BadRequest("ID mismatch");
+            //}
+            _mapper.Map(noteDTO, existingNote);
             try
             {
-                return Ok(await _uow.Notes.UpdateAsync(note));
+                return Ok(await _uow.NotesCRUD.UpdateAsync(existingNote));
             }
-            catch (DbUpdateConcurrencyException)
+            catch
             {
+                return BadRequest("Failed to update note");
             }
-
-            return NoContent();
         }
         [HttpPost]
-        public async Task<ActionResult<Note>> AddNote(NoteDTO noteDTO)
+        [ProducesResponseType(StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<ActionResult<NoteDTO>> AddNote(NoteDTO noteDTO)
         {
-            Note note = _mapper.Map<Note>(noteDTO);
-            if (ModelState.IsValid)
+            var user = await GetCurrentUserAsync();
+            if (user == null)
             {
-                await _uow.Notes.AddAsync(note);
-
-                return CreatedAtAction("GetNote", new { id = note.Id }, note);
+                return RedirectToAction("Login", "Auth");
             }
-            return BadRequest("Invalid Data");
-
+            if (await _uow.Notes.IsUnique(noteDTO.Title, user.Id))
+            {
+                ModelState.AddModelError("UniqueError", "Note name already exists");
+            }
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+            var note = _mapper.Map<Note>(noteDTO);
+            note.UserId = user.Id;
+            var createdNote = await _uow.NotesCRUD.AddAsync(note);
+            return CreatedAtAction(
+        actionName: nameof(AddNote),
+        routeValues: new { id = note.Id },
+        value: noteDTO);
         }
         [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteNote(int id)
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<NoteDTO>> DeleteNote(int id)
         {
-            Note? note = await _uow.Notes.DeleteAsync(id);
+            var user = await GetCurrentUserAsync();
+            var note = await _uow.Notes.DeleteAsync(id, user.Id);
+
             if (note == null)
             {
-                return NotFound("Note Not Found");
+                return NotFound("Note not found");
             }
-            return Ok(note);
+            return Ok(_mapper.Map<NoteDTO>(note));
+        }
+        [HttpDelete("by-name")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<NoteDTO>> DeleteNote(NoteDTO noteDTO)
+        {
+            var user = await GetCurrentUserAsync();
+            var note = await _uow.Notes.DeleteAsync(noteDTO.Title, user.Id);
+
+            if (note == null)
+            {
+                return NotFound("Note not found");
+            }
+            return Ok(_mapper.Map<NoteDTO>(note));
         }
 
-        //private bool NoteExists(int id)
-        //{
-        //    return _context.Notes.Any(e => e.Id == id);
-        //}
+        private async Task<User> GetCurrentUserAsync()
+        {
+            return await _userManager.GetUserAsync(User);
+        }
     }
 }

@@ -22,14 +22,53 @@ namespace TaskManager.Infrastructure.Repositories
             _dbSet = db.Set<T>();
 
         }
+        public async Task<List<T>> GetByTitle(string title, int userId)
+        {
+            return await _dbSet.Where(entity => EF.Property<string>(entity, "Title").ToLower() == title.ToLower() && EF.Property<int>(entity, "UserId") == userId).ToListAsync();
+        }
 
-        public async Task<List<T>> GetWithCategory(User user, int categoryId = 0)
+        public async Task<List<T>> GetWithCategoryId(int categoryId, int userId)
         {
-            return await _dbSet.Where(entity => EF.Property<int>(entity, "CategoryId") == categoryId && EF.Property<int>(entity, "UserId") == user.Id).ToListAsync();
+            return await _dbSet.Where(entity => EF.Property<int>(entity, "CategoryId") == categoryId && EF.Property<int>(entity, "UserId") == userId).ToListAsync();
         }
-        public async Task<T> GetById(User user, int id)
+        public async Task<List<Item>> GetWithCategoryName(string categoryName, int userId)
         {
-            return await _dbSet.FirstOrDefaultAsync(entity => EF.Property<int>(entity, "Id") == id && EF.Property<int>(entity, "UserId") == user.Id);
+            return await _db.Items.Where(i => i.category.Name == categoryName && i.UserId==userId).ToListAsync();
+            //return await _dbSet.Where(entity => EF.Property<string>(entity, "CategoryName") == categoryName && EF.Property<int>(entity, "UserId") == userId).ToListAsync();
         }
+        public async Task<List<T>> GetWithColorId(int colorId, int userId)
+        {
+            return await _dbSet.Where(entity => EF.Property<int>(entity, "ColorId") == colorId && EF.Property<int>(entity, "UserId") == userId).ToListAsync();
+        }
+        public async Task<List<Item>> GetWithColorName(string colorName, int userId)
+        {
+            return await _db.Items.Where(i => i.color.Name == colorName && i.UserId == userId).ToListAsync();
+            //return await _dbSet.Where(entity => EF.Property<string>(entity, "ColorName") == colorName && EF.Property<int>(entity, "UserId") == userId).ToListAsync();
+        }
+        //public async Task<List<T>> GetByTitle(string title, int userId)
+        //{
+        //    return await _dbSet.Where(entity => EF.Property<string>(entity, "Title").ToLower() == title.ToLower() && EF.Property<int>(entity, "UserId") == userId).ToListAsync();
+        //}
+
+        //public async Task<List<T>> GetWithCategoryId(int categoryId,int userId)
+        //{
+        //    return await _dbSet.Where(entity => EF.Property<int>(entity, "CategoryId") == categoryId && EF.Property<int>(entity, "UserId") == userId).ToListAsync();
+        //}
+        //public async Task<List<T>> GetWithCategoryName(string categoryName, int userId)
+        //{
+        //    return await _dbSet.Where(entity => EF.Property<string>(entity, "CategoryName") == categoryName && EF.Property<int>(entity, "UserId") == userId).ToListAsync();
+        //}
+        //public async Task<List<T>> GetWithColorId(int colorId, int userId)
+        //{
+        //    return await _dbSet.Where(entity => EF.Property<int>(entity, "ColorId") == colorId && EF.Property<int>(entity, "UserId") == userId).ToListAsync();
+        //}
+        //public async Task<List<T>> GetWithColorName(string colorName, int userId)
+        //{
+        //    return await _dbSet.Where(entity => EF.Property<string>(entity, "ColorName") == colorName && EF.Property<int>(entity, "UserId") == userId).ToListAsync();
+        //}
+        //public async Task<T> GetById(int id, int userId)
+        //{
+        //    return await _dbSet.FirstOrDefaultAsync(entity => EF.Property<int>(entity, "Id") == id && EF.Property<int>(entity, "UserId") == userId);
+        //}
     }
 }

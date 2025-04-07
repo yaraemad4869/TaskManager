@@ -1,52 +1,84 @@
-﻿using AutoMapper;
-using Microsoft.AspNetCore.Http;
+﻿using System.Linq;
+using AutoMapper;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using TaskManager.Auth.Abstracts;
+using TaskManager.Core.Enums;
 using TaskManager.Core.Models;
 using TaskManager.DTOs;
 
-namespace TaskManager.Controllers
+[ApiController]
+[Route("api/[controller]")]
+public class AuthController : ControllerBase
 {
-    [Route("api/[controller]")]
-    [ApiController]
-    public class AuthController : ControllerBase
+    private readonly UserManager<User> _userManager;
+    //private readonly SignInManager<User> _signInManager;
+    private readonly TokenService _tokenService;
+    private readonly IMapper _mapper;
+
+    public AuthController(
+        UserManager<User> userManager,
+        //SignInManager<User> signInManager,
+        TokenService tokenService,
+        IMapper mapper)
     {
-        private readonly IAuthService _authService;
-        private readonly IMapper _mapper;
+        _userManager = userManager;
+        //_signInManager = signInManager;
+        _tokenService = tokenService;
+        _mapper = mapper;
+    }
 
-        public AuthController(IAuthService authService, IMapper mapper)
+    [HttpPost("register")]
+    public async Task<IActionResult> Register(UserDTO model)
+    {
+        
+        if(ModelState.IsValid)
         {
-            _authService = authService;
-            _mapper = mapper;
-        }
+            var user = _mapper.Map<User>(model);
+            IdentityResult result = await _userManager.CreateAsync(user, model.Password);
 
-        [HttpPost("register")]
-        public async Task<IActionResult> Register(UserDTO userRegisterDto)
-        {
-            try
+            if (result.Succeeded)
             {
-                var userDto = await _authService.Register(userRegisterDto);
-                return Ok(userDto);
+                return Ok("Token");
+                //return Ok(new { Token = _tokenService.GenerateToken(user) });
             }
-            catch (ApplicationException ex)
+            else
             {
-                return BadRequest(new { message = ex.Message });
+                foreach (var error in result.Errors)
+                {
+                    ModelState.AddModelError("RegistrationError", error.Description);
+                }
             }
+            //return BadRequest(result.Errors);
         }
+        return BadRequest(ModelState);
+    }
 
-        [HttpPost("login")]
-        public async Task<IActionResult> Login(LoginDTO userLoginDto)
-        {
-            try
+    [HttpPost("login")]
+    public async Task<IActionResult> Login(LoginDTO model)
+    {
+        if(ModelState.IsValid){
+            var user = await _userManager.FindByEmailAsync(model.Email);
+
+            if (user == null)
             {
-                var userDto = await _authService.Login(userLoginDto);
-                var token = _authService.GenerateJwtToken(_mapper.Map<User>(userDto));
-                return Ok(new { user = userDto, token });
+                ModelState.AddModelError("LoginError", "Invalid Email.");
+
             }
-            catch (ApplicationException ex)
+            else
             {
-                return Unauthorized(new { message = ex.Message });
+
+                if (await _userManager.CheckPasswordAsync(user, model.Password))
+                {
+                    var tokenResponse = await _tokenService.GenerateToken(user);
+                    return Ok(tokenResponse);
+                }
+                else
+                {
+                    ModelState.AddModelError("LoginError", "Invalid Password.");
+                }
+
             }
         }
+        return Unauthorized(ModelState);
     }
 }

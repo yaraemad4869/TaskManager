@@ -19,12 +19,12 @@ namespace TaskManager.Core.Models
         public DateTime LastUpdated { get; set; } = DateTime.Now;
         [ForeignKey("user")]
         public int UserId { get; set; }
-        public User user { get; set; }
+        public virtual User user { get; set; }
         [ForeignKey("color")]
         public int ColorId { get; set; } = 0;
-        public Color color { get; set; }
+        public virtual Color color { get; set; }
         [ForeignKey("category")]
         public int CategoryId { get; set; } = 0;
-        public Category category { get; set; }
+        public virtual Category category { get; set; }
     }
 }

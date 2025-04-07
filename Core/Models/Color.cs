@@ -16,9 +16,11 @@ namespace TaskManager.Core.Models
         public string Name { get; set; }
         public string HeaderGrade { get; set; } = "#FFF9C4";
         public string BodyGrade { get; set; } = "#FFFFFF";
+        public string HeaderTextGrade { get; set; } = "#000000";
+        public string BodyTextGrade { get; set; } = "#000000";
         [ForeignKey("user")]
         public int UserId { get; set; }
-        public User user { get; set; }
-        public ICollection<Item>? Items { get; set; }
+        public virtual User user { get; set; }
+        public virtual ICollection<Item>? Items { get; set; }
     }
 }

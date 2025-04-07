@@ -18,8 +18,13 @@ namespace TaskManager.Mapping
             CreateMap<ToDoList, ToDoListDTO>()
                 .ForMember(dest => dest.CategoryName, opt => opt.MapFrom(src => src.category.Name))
                 .ForMember(dest => dest.ColorName, opt => opt.MapFrom(src => src.color.Name));
+            CreateMap<CategoryDTO, Category>();
+            CreateMap<ColorDTO, Color>();
+            CreateMap<ToDoDTO, ToDo>();
             CreateMap<User, UserDTO>();
+            CreateMap<UserDTO, User>();
             CreateMap<User, LoginDTO>();
+            CreateMap<LoginDTO, User>();
         }
     }
 }

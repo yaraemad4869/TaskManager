@@ -32,19 +32,20 @@ namespace TaskManager.Infrastructure.Repositories
             return await _dbSet.Where(entity => EF.Property<string>(entity, "Name") == name).ToListAsync() ?? await _dbSet.Where(entity => EF.Property<string>(entity, "Title") == name).ToListAsync();
         }
 
-        public async Task AddAsync(T entity)
+        public async Task<T> AddAsync(T entity)
         {
             await _dbSet.AddAsync(entity);
             await _context.SaveChangesAsync();
+            return entity;
         }
 
         public async Task<T>? UpdateAsync(T entity)
         {
-            var entity1 = await _dbSet.FirstOrDefaultAsync(e => EF.Property<int>(e, "Id") == EF.Property<int>(entity, "Id"));
-            if (entity1 == null)
-            {
-                return null;
-            }
+            //var entity1 = await _dbSet.FindAsync(EF.Property<int>(entity, "Id"));
+            //if (entity1 == null)
+            //{
+            //    return null;
+            //}
             _dbSet.Attach(entity);
             _context.Entry(entity).State = EntityState.Modified;
             await _context.SaveChangesAsync();

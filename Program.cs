@@ -13,9 +13,9 @@ using TaskManager.Mapping;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
-using TaskManager.Auth.Abstracts;
-using TaskManager.Auth.Implementation;
 using TaskManager.Extensions;
+using Microsoft.OpenApi.Models;
+using TaskManager.Services;
 var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("ConStr") ?? throw new InvalidOperationException("Connection string 'ConStr' not found.");;
 
@@ -27,26 +27,65 @@ builder.Services.AddControllers()
     });
 //builder.Services.AddDefaultIdentity<IdentityUser>(options => options.SignIn.RequireConfirmedAccount = true).AddEntityFrameworkStores<AppDbContext>();
 
-builder.Services.AddIdentity<AppUser, IdentityRole>().AddEntityFrameworkStores<AppDbContext>();
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
+builder.Services.AddIdentity<User, IdentityRole<int>>().AddEntityFrameworkStores<AppDbContext>().AddDefaultTokenProviders();
+//var jwtSettings = builder.Configuration.GetSection("JWT");
+
+//builder.Services.AddAuthentication(options =>
+//{
+//    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+//    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+//    options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
+//})
+//.AddJwtBearer(options =>
+//{
+//    options.TokenValidationParameters = new TokenValidationParameters
+//    {
+//        ValidateIssuer = true,
+//        ValidateAudience = true,
+//        ValidateLifetime = true,
+//        ValidateIssuerSigningKey = true,
+//        ValidIssuer = jwtSettings["Issuer"],
+//        ValidAudience = jwtSettings["Audience"],
+//        IssuerSigningKey = new SymmetricSecurityKey(
+//            Encoding.UTF8.GetBytes(jwtSettings["SecretKey"]))
+//    };
+//});
+builder.Services.AddCustomJWTConfiguration(builder.Configuration);
+builder.Services.AddSwaggerGen(
+    c =>
+{
+    // Other config...
+
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ValidIssuer = builder.Configuration["Jwt:Issuer"],
-            ValidAudience = builder.Configuration["Jwt:Audience"],
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]))
-        };
+        Description = "JWT Authorization header",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer"
     });
-builder.Services.AddAuthorizationPolicies();
+}
+);
+
 builder.Services.AddAuthorization();
-builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<IAuthService, AuthService>();
+//builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+//    .AddJwtBearer(options =>
+//    {
+//        options.TokenValidationParameters = new TokenValidationParameters
+//        {
+//            ValidateIssuer = true,
+//            ValidateAudience = true,
+//            ValidateLifetime = true,
+//            ValidateIssuerSigningKey = true,
+//            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+//            ValidAudience = builder.Configuration["Jwt:Audience"],
+//            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]))
+//        };
+//    });
+builder.Services.AddAuthorizationPolicies();
+//builder.Services.AddAuthorization();
+//builder.Services.AddHttpContextAccessor();
+//builder.Services.AddScoped<IAuthService, AuthService>();
 // Add services to the container.
+builder.Services.AddScoped<TokenService>();
 builder.Services.AddTransient<IUnitOfWork, UnitOfWork>();
 builder.Services.AddTransient<IBasicRepo<User>, BasicRepo<User>> ();
 builder.Services.AddTransient<IBasicRepo<Category>, BasicRepo<Category>>();
@@ -58,12 +97,14 @@ builder.Services.AddTransient<IBasicRepo<Note>, BasicRepo<Note>>();
 builder.Services.AddTransient<IItemRepo<Note>, ItemRepo<Note>>();
 builder.Services.AddTransient<IItemRepo<ToDoList>, ItemRepo<ToDoList>>();
 builder.Services.AddTransient<IUserRepo, UserRepo>();
-builder.Services.AddTransient<ICategoryRepo, CategoryRepo>();
+builder.Services.AddTransient<ICategoryRepo<Category>, CategoryRepo<Category>>();
+
+builder.Services.AddTransient<ICategoryRepo<Color>, CategoryRepo<Color>>();
 builder.Services.AddControllers();
 builder.Services.AddAutoMapper(typeof(MappingProfile));
 builder.Services.AddOpenApi();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+//builder.Services.AddSwaggerGen();
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddCors(options =>
@@ -71,11 +112,13 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowAllOrigins",
         builder =>
         {
-            builder.AllowAnyOrigin()
+            builder.WithOrigins("http://localhost:7278")
                    .AllowAnyMethod()
-                   .AllowAnyHeader();
+                   .AllowAnyHeader()
+                   .AllowCredentials();
         });
 });
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -92,12 +135,13 @@ else
 }
 
 //app.UsePathBase("/swagger");
-app.UseHttpsRedirection();
-
-app.UseAuthorization();
-app.UseAuthentication();
+//app.UseHttpsRedirection();
+app.UseRouting();
 
 app.UseCors("AllowAllOrigins");
+app.UseAuthentication();
+app.UseAuthorization();
+
 app.MapControllers();
 
 app.Run();

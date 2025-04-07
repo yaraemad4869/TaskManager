@@ -101,13 +101,17 @@ namespace TaskManager.Controllers
             {
                 return NotFound("ToDoList not found");
             }
-            if (id != existingToDoList.Id)
-            {
-                return BadRequest("ID mismatch");
-            }
+            //if (id != existingToDoList.Id)
+            //{
+            //    return BadRequest("ID mismatch");
+            //}
             if (await _uow.ToDoLists.IsUnique(todolistDTO.Title, user.Id))
             {
                 ModelState.AddModelError("UniqueError", "To-Do List name already exists");
+            }
+            if(!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
             }
             _mapper.Map(todolistDTO,existingToDoList);
             try
